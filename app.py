@@ -3,108 +3,77 @@ import plotly.graph_objects as go
 import numpy as np
 import time
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Simulador de Carga de Harina", layout="wide")
-st.title("🏗️ Simulador de Tolva y Manga Paramétrico")
+st.set_page_config(page_title="Simulador de Carga", layout="wide")
 
-# --- PANEL LATERAL (CONTROLES) ---
-st.sidebar.header("Configuración de Dimensiones")
+st.sidebar.header("⚙️ Parámetros de Control")
+d_tolva = st.sidebar.slider("Diámetro Tolva (cm)", 30.0, 60.0, 44.0) / 100
+h_tolva = 0.80 # Altura fija de la tolva
+d_manga_mayor = st.sidebar.slider("Diámetro Mayor Manga (cm)", 40.0, 70.0, 50.0) / 100
+d_manga_menor = st.sidebar.slider("Diámetro Menor Manga (cm)", 20.0, 40.0, 30.0) / 100
+descenso_cil = st.sidebar.slider("Descenso Cilindro (cm)", 5.0, 20.0, 10.0) / 100
 
-# Dimensiones Tolva
-d_tolva = st.sidebar.slider("Diámetro Tolva (cm)", 30, 100, 44) / 100
-h_tolva = st.sidebar.slider("Altura Tolva (cm)", 40, 150, 80) / 100
-
-# Dimensiones Manga/Cono
-d_manga_mayor = st.sidebar.slider("Diámetro Mayor Manga (cm)", 40, 80, 50) / 100
-d_manga_menor = st.sidebar.slider("Diámetro Menor Manga (cm)", 20, 50, 30) / 100
-h_manga = 0.20 # Altura fija según pedido inicial
-
-# Sensor
-descenso_cilindro = st.sidebar.slider("Descenso Cilindro Interno (cm)", 5, 30, 10) / 100
-h_plomada = 0.05 # 5 cm según pedido
-
-if st.button("▶️ Iniciar Simulación"):
-    progreso_llenado = st.empty()
-    grafico_evento = st.empty()
+if st.sidebar.button("▶ Iniciar Proceso"):
+    # Contenedores vacíos para actualizar en tiempo real
+    placeholder_grafico = st.empty()
+    placeholder_info = st.empty()
     
-    # Simulación de pasos
-    pasos = 50
-    altura_harina = 0
-    plomada_y = h_tolva - descenso_cilindro # Posición objetivo de la plomada
+    nivel_harina = 0.0
+    h_plomada = 0.05 # 5 cm
+    pos_sensor_inicial = h_tolva - descenso_cil
+    plomada_y = pos_sensor_inicial
     
-    for i in range(pasos + 20):
-        # Lógica de llenado
-        if altura_harina < plomada_y:
-            altura_harina += (h_tolva / pasos)
-            estado = "Descargando Harina..."
-            color_harina = "wheat"
-        else:
-            # Una vez toca la plomada, la plomada sube con la harina (se levanta)
-            plomada_y = altura_harina
-            # Excedente (termina de bajar lo que queda en la manga)
-            if i < pasos + 15:
-                altura_harina += 0.005
-                estado = "¡NIVEL ALCANZADO! (Descargando excedente)"
-            else:
-                estado = "Proceso Terminado"
+    for t in range(100):
+        # Lógica de llenado y movimiento de plomada
+        tocado = nivel_harina >= plomada_y
         
-        # --- CREACIÓN DEL GRÁFICO 3D CON PLOTLY ---
+        if not tocado:
+            nivel_harina += 0.015
+            estado = "📥 LLENANDO TOLVA..."
+            color_msg = "blue"
+        else:
+            # La plomada sube con la harina
+            plomada_y = nivel_harina
+            nivel_harina += 0.005 # Carga residual más lenta
+            estado = "🛑 SEÑAL DE NIVEL: CORTE DE ENVÍO"
+            color_msg = "red"
+        
+        # --- Gráfico 3D ---
         fig = go.Figure()
 
-        # 1. Dibujar Tolva (Cilindro)
-        z = np.linspace(0, h_tolva, 10)
+        # 1. Tolva
+        z_t = np.linspace(0, h_tolva, 10)
         theta = np.linspace(0, 2*np.pi, 20)
-        theta_grid, z_grid = np.meshgrid(theta, z)
-        x_tolva = (d_tolva/2) * np.cos(theta_grid)
-        y_tolva = (d_tolva/2) * np.sin(theta_grid)
-        fig.add_trace(go.Surface(x=x_tolva, y=y_tolva, z=z_grid, opacity=0.3, showscale=False, colorscale=[[0, 'gray'], [1, 'gray']]))
+        theta_grid, z_grid = np.meshgrid(theta, z_t)
+        fig.add_trace(go.Surface(x=(d_tolva/2)*np.cos(theta_grid), y=(d_tolva/2)*np.sin(theta_grid), z=z_grid, 
+                                 opacity=0.2, showscale=False, colorscale=[[0, 'gray'], [1, 'gray']]))
 
-        # 2. Dibujar Manga (Cono Invertido)
-        z_m = np.linspace(h_tolva, h_tolva + h_manga, 10)
+        # 2. Manga (Cono Invertido)
+        z_m = np.linspace(h_tolva, h_tolva + 0.2, 10)
         r_m = np.linspace(d_manga_menor/2, d_manga_mayor/2, 10)
         r_grid, z_grid_m = np.meshgrid(r_m, z_m)
-        theta_m = np.linspace(0, 2*np.pi, 20)
-        x_m = r_m[:, None] * np.cos(theta_m)
-        y_m = r_m[:, None] * np.sin(theta_m)
-        z_m_surf = np.tile(z_m[:, None], (1, 20))
-        fig.add_trace(go.Surface(x=x_m, y=y_m, z=z_m_surf, opacity=0.8, showscale=False, colorscale=[[0, 'orange'], [1, 'orange']]))
+        fig.add_trace(go.Surface(x=r_m[:,None]*np.cos(theta), y=r_m[:,None]*np.sin(theta), z=np.tile(z_m[:,None], (1,20)), 
+                                 opacity=0.7, showscale=False, colorscale=[[0, 'orange'], [1, 'orange']]))
 
-        # 3. Harina (Micropartículas aleatorias)
-        n_particulas = 150
-        px = np.random.uniform(-d_tolva/2.5, d_tolva/2.5, n_particulas)
-        py = np.random.uniform(-d_tolva/2.5, d_tolva/2.5, n_particulas)
-        pz = np.random.uniform(0, altura_harina, n_particulas)
+        # 3. Harina (Puntos)
+        px = np.random.uniform(-d_tolva/3, d_tolva/3, 100)
+        py = np.random.uniform(-d_tolva/3, d_tolva/3, 100)
+        pz = np.random.uniform(0, nivel_harina, 100)
         fig.add_trace(go.Scatter3d(x=px, y=py, z=pz, mode='markers', marker=dict(size=2, color='wheat')))
 
-        # 4. Cilindro Interno y Plomada (5cm)
-        # Cilindro (linea gruesa)
-        fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[h_tolva, plomada_y + h_plomada], 
-                                   mode='lines', line=dict(color='blue', width=10)))
-        # Plomada (Esfera roja de 5cm de alto)
+        # 4. Cilindro y Plomada (5cm) que sube
+        fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[h_tolva + 0.1, plomada_y + h_plomada], 
+                                   mode='lines', line=dict(color='blue', width=8)))
         fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[plomada_y + h_plomada/2], 
-                                   mode='markers', marker=dict(size=15, color='red', symbol='diamond')))
+                                   mode='markers', marker=dict(size=12, color='red', symbol='diamond')))
 
-        # Configuración de ejes
-        fig.update_layout(
-            scene=dict(
-                zaxis=dict(range=[0, h_tolva + h_manga + 0.1]),
-                xaxis=dict(range=[-0.5, 0.5]),
-                yaxis=dict(range=[-0.5, 0.5]),
-                aspectmode='manual',
-                aspectratio=dict(x=1, y=1, z=1.5)
-            ),
-            margin=dict(l=0, r=0, b=0, t=0),
-            showlegend=False
-        )
-
-        grafico_evento.plotly_chart(fig, use_container_width=True)
-        progreso_llenado.subheader(f"Estado: {estado} | Nivel: {altura_harina*100:.1f} cm")
+        fig.update_layout(scene=dict(zaxis=dict(range=[0, 1.1]), aspectmode='manual', aspectratio=dict(x=1, y=1, z=1.5)), 
+                          margin=dict(l=0, r=0, b=0, t=0), height=600)
         
-        if "Terminado" in estado:
-            st.balloons()
-            break
+        placeholder_grafico.plotly_chart(fig, use_container_width=True)
+        placeholder_info.markdown(f"<h2 style='color:{color_msg}; text-align:center;'>{estado}</h2>", unsafe_allow_html=True)
         
-        time.sleep(0.05)
+        if nivel_harina > h_tolva: break
+        time.sleep(0.1)
 
 else:
-    st.info("Ajusta las dimensiones en el panel de la izquierda y presiona 'Iniciar Simulación'")
+    st.info("Configura las medidas a la izquierda y pulsa 'Iniciar Proceso'")
